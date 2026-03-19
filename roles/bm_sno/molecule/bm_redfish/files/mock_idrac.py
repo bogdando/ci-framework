@@ -321,6 +321,23 @@ class RedfishHandler(BaseHTTPRequestHandler):
         self._send_json({"status": "cleared"}, 200)
 
     def _post_insert_media(self, body):
+        if STATE.vmedia_inserted:
+            self._send_json(
+                {
+                    "error": {
+                        "@Message.ExtendedInfo": [
+                            {
+                                "Message": (
+                                    "The Virtual Media image server "
+                                    "is already connected."
+                                ),
+                            }
+                        ]
+                    }
+                },
+                400,
+            )
+            return
         STATE.vmedia_inserted = True
         STATE.vmedia_image = body.get("Image", "http://test/test.iso")
         self._send_json({"status": "inserted"}, 204)

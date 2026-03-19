@@ -1,0 +1,46 @@
+---
+# Insert agent ISO via iDRAC VirtualMedia.
+# The preceding bm_eject_vmedia.yml must have already cleared any stale
+# connection (including the racadm fallback for lingering RFS).
+# Requires: _bmc_host, _bmc_creds, _redfish_headers, _controller_ip, _iso_http_port
+- name: Insert agent ISO via VirtualMedia
+  ansible.builtin.uri:
+    url: "https://{{ _bmc_host }}/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/CD/Actions/VirtualMedia.InsertMedia"
+    method: POST
+    headers: "{{ _redfish_headers }}"
+    body_format: json
+    body:
+      Image: "http://{{ _controller_ip }}:{{ _iso_http_port }}/agent.x86_64.iso"
+      Inserted: true
+      WriteProtected: true
+    user: "{{ _bmc_creds.username }}"
+    password: "{{ _bmc_creds.password }}"
+    validate_certs: false
+    force_basic_auth: true
+    status_code: [200, 204]
+  register: _insert_media
+  retries: 3
+  delay: 10
+  until: _insert_media.status in [200, 204]
+
+- name: Verify VirtualMedia reports inserted with correct image
+  ansible.builtin.uri:
+    url: "https://{{ _bmc_host }}/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/CD"
+    method: GET
+    headers: "{{ _redfish_headers }}"
+    user: "{{ _bmc_creds.username }}"
+    password: "{{ _bmc_creds.password }}"
+    validate_certs: false
+    force_basic_auth: true
+    status_code: [200]
+  register: _vmedia_after_insert
+  retries: 6
+  delay: 5
+  until: _vmedia_after_insert.json.Inserted | default(false)
+
+- name: Show VirtualMedia state after insert
+  ansible.builtin.debug:
+    msg: >-
+      VirtualMedia Inserted={{ _vmedia_after_insert.json.Inserted }},
+      ConnectedVia={{ _vmedia_after_insert.json.ConnectedVia | default('') }},
+      Image={{ _vmedia_after_insert.json.Image | default('') }}

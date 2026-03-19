@@ -279,24 +279,7 @@
   ansible.builtin.include_tasks: bm_eject_vmedia.yml
 
 - name: Insert agent ISO via VirtualMedia
-  ansible.builtin.uri:
-    url: "https://{{ _bmc_host }}/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/CD/Actions/VirtualMedia.InsertMedia"
-    method: POST
-    headers: "{{ _redfish_headers }}"
-    body_format: json
-    body:
-      Image: "http://{{ _controller_ip }}:{{ _iso_http_port }}/agent.x86_64.iso"
-      Inserted: true
-      WriteProtected: true
-    user: "{{ _bmc_creds.username }}"
-    password: "{{ _bmc_creds.password }}"
-    validate_certs: false
-    force_basic_auth: true
-    status_code: [200, 204]
-  register: _insert_media
-  retries: 3
-  delay: 10
-  until: _insert_media.status in [200, 204]
+  ansible.builtin.include_tasks: bm_insert_vmedia.yml
 
 - name: Discover VirtualMedia target and set one-time boot override
   ansible.builtin.include_tasks: bm_discover_vmedia_target.yml

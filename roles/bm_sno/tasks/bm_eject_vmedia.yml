@@ -1,5 +1,10 @@
 ---
-# Eject VirtualMedia from iDRAC.
+# Eject VirtualMedia from iDRAC and force-disconnect the Remote File Share.
+# NOTE: EjectMedia sets Inserted=false but on iDRAC 9 (fw 4.x) the Image URL and
+# the underlying RFS connection linger indefinitely (RH BZ#1910739). PATCH
+# on VirtualMedia/CD is not supported (405). The only reliable way to release
+# the RFS is racadm, which we attempt as a fallback when Image persists after
+# the Redfish eject.
 # Requires: _bmc_host, _bmc_creds, _redfish_headers
 - name: Eject VirtualMedia
   ansible.builtin.uri:
@@ -12,10 +17,89 @@
     password: "{{ _bmc_creds.password }}"
     validate_certs: false
     force_basic_auth: true
-    status_code: [200, 204, 400, 500]
+    status_code: [200, 204, 400]
   register: _eject_result
   failed_when: false
 
-- name: Wait for VirtualMedia eject to settle
-  ansible.builtin.pause:
-    seconds: 5
+- name: Wait for VirtualMedia Inserted flag to clear
+  ansible.builtin.uri:
+    url: "https://{{ _bmc_host }}/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/CD"
+    method: GET
+    headers: "{{ _redfish_headers }}"
+    user: "{{ _bmc_creds.username }}"
+    password: "{{ _bmc_creds.password }}"
+    validate_certs: false
+    force_basic_auth: true
+    status_code: [200]
+  register: _vmedia_status
+  retries: 12
+  delay: 5
+  until: not (_vmedia_status.json.Inserted | default(true))
+
+- name: Show VirtualMedia state after Redfish eject
+  ansible.builtin.debug:
+    msg: >-
+      Inserted={{ _vmedia_status.json.Inserted }},
+      ConnectedVia={{ _vmedia_status.json.ConnectedVia | default('') }},
+      Image={{ _vmedia_status.json.Image | default('') }},
+      eject_status={{ _eject_result.status }}
+
+- name: Disconnect all VirtualMedia sessions via racadm
+  when: (_vmedia_status.json.Image | default('')) | length > 0
+  ansible.builtin.shell:
+    cmd: >-
+      sshpass -p '{{ _bmc_creds.password }}'
+      ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+      -o ConnectTimeout=30
+      '{{ _bmc_creds.username }}@{{ _bmc_host }}'
+      racadm remoteimage -d
+  register: _racadm_disable
+  changed_when: _racadm_disable.rc == 0
+  no_log: true
+
+- name: Show racadm disable result
+  when: _racadm_disable is defined
+  ansible.builtin.debug:
+    msg: >-
+      racadm remoteimage -d: rc={{ _racadm_disable.rc }},
+      stdout={{ _racadm_disable.stdout | default('') | trim }}
+
+- name: Wait for Remote File Share to report DISABLED
+  when: _racadm_disable is defined and _racadm_disable.rc == 0
+  ansible.builtin.shell:
+    cmd: >-
+      sshpass -p '{{ _bmc_creds.password }}'
+      ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+      -o ConnectTimeout=30
+      '{{ _bmc_creds.username }}@{{ _bmc_host }}'
+      racadm remoteimage -s
+  register: _racadm_status
+  no_log: true
+  retries: 12
+  delay: 5
+  until: "'agent.x86_64.iso' not in (_racadm_status.stdout | default(''))"
+
+- name: Show Remote File Share status after disable
+  when: _racadm_status is defined
+  ansible.builtin.debug:
+    msg: "{{ _racadm_status.stdout | default('') | trim }}"
+
+- name: Re-enable Remote File Share for subsequent InsertMedia
+  when: _racadm_disable is defined and _racadm_disable.rc == 0
+  ansible.builtin.shell:
+    cmd: >-
+      sshpass -p '{{ _bmc_creds.password }}'
+      ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+      -o ConnectTimeout=30
+      '{{ _bmc_creds.username }}@{{ _bmc_host }}'
+      racadm remoteimage -e
+  register: _racadm_enable
+  changed_when: _racadm_enable.rc == 0
+  no_log: true
+
+- name: Show racadm re-enable result
+  when: _racadm_enable is defined
+  ansible.builtin.debug:
+    msg: >-
+      racadm remoteimage -e: rc={{ _racadm_enable.rc }},
+      stdout={{ _racadm_enable.stdout | default('') | trim }}

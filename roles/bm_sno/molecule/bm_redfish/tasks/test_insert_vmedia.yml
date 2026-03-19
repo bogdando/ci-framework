@@ -1,0 +1,70 @@
+---
+# Test bm_insert_vmedia.yml: inserts agent ISO via VirtualMedia.
+
+- name: "Insert_vmedia case 1: clean insert -- succeeds"
+  block:
+    - name: Reset mock with VirtualMedia ejected
+      ansible.builtin.uri:
+        url: "{{ _mock_reset_url }}"
+        method: POST
+        body_format: json
+        body:
+          vmedia_inserted: false
+          vmedia_image: ""
+        validate_certs: false
+        status_code: [200]
+
+    - name: Include bm_insert_vmedia
+      ansible.builtin.include_role:
+        name: bm_sno
+        tasks_from: bm_insert_vmedia.yml
+
+    - name: Query mock state after insert
+      ansible.builtin.uri:
+        url: "{{ _mock_state_url }}"
+        validate_certs: false
+      register: _state
+
+    - name: Assert VirtualMedia is inserted with correct image
+      ansible.builtin.assert:
+        that:
+          - _state.json.vmedia_inserted | bool
+          - "'agent.x86_64.iso' in _state.json.vmedia_image"
+        fail_msg: "VirtualMedia should be inserted with agent ISO"
+
+- name: "Insert_vmedia case 2: eject-then-insert full cycle -- succeeds"
+  block:
+    - name: Reset mock with a stale ISO inserted
+      ansible.builtin.uri:
+        url: "{{ _mock_reset_url }}"
+        method: POST
+        body_format: json
+        body:
+          vmedia_inserted: true
+          vmedia_image: "http://other-host/old-agent.iso"
+        validate_certs: false
+        status_code: [200]
+
+    - name: Eject first
+      ansible.builtin.include_role:
+        name: bm_sno
+        tasks_from: bm_eject_vmedia.yml
+
+    - name: Insert after eject
+      ansible.builtin.include_role:
+        name: bm_sno
+        tasks_from: bm_insert_vmedia.yml
+
+    - name: Query mock state
+      ansible.builtin.uri:
+        url: "{{ _mock_state_url }}"
+        validate_certs: false
+      register: _state
+
+    - name: Assert fresh agent ISO is now mounted
+      ansible.builtin.assert:
+        that:
+          - _state.json.vmedia_inserted | bool
+          - "'agent.x86_64.iso' in _state.json.vmedia_image"
+          - "'old-agent' not in _state.json.vmedia_image"
+        fail_msg: "Should have the fresh agent ISO, not the stale one"

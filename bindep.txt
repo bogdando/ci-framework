@@ -44,3 +44,5 @@ python3-jmespath  [platform:rpm]
 python3-netaddr   [platform:rpm]
 # Required for ansible-lint to not complain about python not found
 python-unversioned-command [platform:rpm]
+# Required for bm_sno role to SSH into iDRAC for racadm commands
+sshpass

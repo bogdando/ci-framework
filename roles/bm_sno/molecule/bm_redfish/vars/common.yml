@@ -7,5 +7,7 @@ _redfish_headers:
   Accept: "application/json"
   Content-Type: "application/json"
   OData-Version: "4.0"
+_controller_ip: "127.0.0.1"
+_iso_http_port: 8080
 _mock_reset_url: "https://localhost:8443/test/reset"
 _mock_state_url: "https://localhost:8443/test/state"
